@@ -18,59 +18,39 @@ import sys
 import utm
 import logging, logging.handlers
 
-import fiona
-import utm
-import ogr, osr
-
-from shapely.geometry import shape
+import pika
+import time
 
 ########################################################################
 # configuracion y variables globales
 from configobj import ConfigObj
-config = ConfigObj('./tracking-push.properties')
+config = ConfigObj('./ais_dispatcher.properties')
 
-LOG = config['directory_logs'] + "/push.log"
+LOG = config['directory_logs'] + "/ais_dispatcher.log"
 LOG_FOR_ROTATE = 10
 
-DB_FRONTEND_IP = config['mysql_host']
-DB_FRONTEND_PORT = config['mysql_port']
-DB_FRONTEND_NAME = config['mysql_db_name']
-DB_FRONTEND_USER = config['mysql_user']
-DB_FRONTEND_PASSWORD = config['mysql_passwd']
+RABBITMQ_HOST = config['rabbitMQ_HOST']
+QUEUE_NAME = config['queue_name']
 
-REMOTE_IP = config['remote_ip']
-REMOTE_PORT = config['remote_port']
-
-FLEET_ID = config['fleet_id']
 SLEEP_TIME = float(config['sleep_time'])
 
-PID = "/var/run/tracking-push/tracking-push"
+PID = "/var/run/sumo/ais_dispatcher"
 
 #### VARIABLES #########################################################
-vRoute = []
-
-LOG_FOLDER = "./shp2kyros.log"
-
-queryHeader = "INSERT INTO routes (SHAPE) VALUES ( GeomFromText( \' LineString("
-queryFooter = ") \' ) )"
-
-# Spatial Reference System
-inputEPSG = 3857
-outputEPSG = 4326
 
 ########################################################################
 
-# definimos los logs internos que usaremos para comprobar errores
+# Se definen los logs internos que usaremos para comprobar errores
 try:
-    logger = logging.getLogger('shp2kyros')
-    loggerHandler = logging.handlers.TimedRotatingFileHandler(LOG_FOLDER, 'midnight', 1, backupCount=10)
+    logger = logging.getLogger('ais_dispatcher')
+    loggerHandler = logging.handlers.TimedRotatingFileHandler(LOG, 'midnight', 1, backupCount=10)
     formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
     loggerHandler.setFormatter(formatter)
     logger.addHandler(loggerHandler)
     logger.setLevel(logging.DEBUG)
 except:
     print '------------------------------------------------------------------'
-    print '[ERROR] Error writing log at %s' % LOG_FOLDER
+    print '[ERROR] Error writing log at %s' % LOG
     print '[ERROR] Please verify path folder exits and write permissions'
     print '------------------------------------------------------------------'
     exit()
@@ -78,17 +58,17 @@ except:
 ########################################################################
 
 if os.access(os.path.expanduser(PID), os.F_OK):
-        print "Checking if tracking-push process is already running..."
+        print "Checking if ais_dispatcher process is already running..."
         pidfile = open(os.path.expanduser(PID), "r")
         pidfile.seek(0)
         old_pd = pidfile.readline()
         # process PID
         if os.path.exists("/proc/%s" % old_pd) and old_pd!="":
-            print "You already have an instance of the tracking-push process running"
+            print "You already have an instance of the ais_dispatcher process running"
             print "It is running as process %s" % old_pd
             sys.exit(1)
         else:
-            print "Trying to start tracking-push process..."
+            print "Trying to start ais_dispatcher process..."
             os.remove(os.path.expanduser(PID))
 
 #This is part of code where we put a PID file in the lock file
@@ -104,17 +84,26 @@ pidfile.close()
 #
 ########################################################################
 
+def main():
+    connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
+    channel = connection.channel()
+
+    channel.queue_declare(queue=QUEUE_NAME)
+
+    def callback(ch, method, properties, body):
+        logger.debug(" [x] Received %r" % body)
+
+        # Se envia el mensaje AIS al KCS
+
+
+        time.sleep(SLEEP_TIME)
+
+    channel.basic_consume(callback,
+                      queue=QUEUE_NAME,
+                      no_ack=True)
+
+    logger.info(' [*] Waiting for AIS messages.')
+    channel.start_consuming()
+
 if __name__ == '__main__':
     main()
-
-Control de parametros:
-if len(sys.argv) == 1:
-    print "--------------------------------------------------------"
-    print "Este programa necesita parametros:"
-    print " --> fichero.csv"
-    print "Ejemplo: fia-test-estres.sh ruta1.csv"
-    exit()
-
-if len(sys.argv) < 2:
-    print "ERROR: Numero de parámetros incorrecto"
-    exit()
