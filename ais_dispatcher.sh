@@ -113,10 +113,10 @@ def main2():
 
     def callback(ch, method, properties, body):
         print(" [x] Received %r" % body)
-        time.sleep(body.count(b'.'))
+        #time.sleep(body.count(b'.'))
         print(" [x] Done")
         ch.basic_ack(delivery_tag = method.delivery_tag)
-        time.sleep(2)
+        #time.sleep(0.1)
 
     channel.basic_qos(prefetch_count=1)
     channel.basic_consume(callback,
