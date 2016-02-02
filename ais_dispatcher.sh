@@ -16,15 +16,11 @@ import datetime
 import os
 import sys
 import utm
+import SocketServer, socket
 import logging, logging.handlers
 
 import pika
-import time
 
-import threading
-import SocketServer, socket
-import binascii
-import base64
 
 ########################################################################
 # configuracion y variables globales
@@ -43,10 +39,6 @@ KCS_PORT = config['KCS_PORT']
 SLEEP_TIME = float(config['sleep_time'])
 
 PID = "/var/run/ais_dispatcher"
-
-#### VARIABLES #########################################################
-
-
 
 ########################################################################
 
@@ -90,12 +82,11 @@ pidfile.close()
 ########################################################################
 
 ########################################################################
-# Definicion de clases
+# Definicion de funciones
 #
 ########################################################################
 
 socketKCS = None
-rabbitMQconnection = None
 
 def connectKCS():
     global socketKCS
@@ -110,19 +101,9 @@ def connectKCS():
     except Exception, error:
         logger.error('Error connecting to KCS: %s', error)
 
-def connectRabbitMQ():
-    global rabbitMQconnection
-
-    # conexión a rabbitMQ
-    try:
-        rabbitMQconnection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
-        return True
-    except Exception, error:
-        logger.error('Error connecting to rabbitMQ: %s', error)
-    return False
-
 def send2kcs(message):
     global socketKCS
+
     try:
         socketKCS.send(message)
         logger.info("[->] Sent to KCS")
@@ -141,33 +122,51 @@ def send2kcs(message):
             logger.info('Failed reconnection to KCS')
     return False
 
+
+########################################################################
+# Funcion principal
+#
+########################################################################
+
 def main():
-    global rabbitMQconnection
+    rabbitMQconnection = None
 
-    # Bucle de conexion a la cola
-    resultRabbitMQ = False
-    while resultRabbitMQ != True:
-        resultRabbitMQ = connectRabbitMQ()
-        time.sleep(0.5)
+    while True:
+        try:
+            if (rabbitMQconnection == None):
+                rabbitMQconnection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
 
-    channel = rabbitMQconnection.channel()
-    channel.queue_declare(queue='AIS', durable=True)
-    logger.info(' [*] Waiting for messages. To exit press CTRL+C')
+            channel = rabbitMQconnection.channel()
+            channel.queue_declare(queue='AIS', durable=True)
+            logger.info(' [*] Waiting for messages. To exit press CTRL+C')
 
-    def callback(ch, method, properties, body):
-        logger.debug(" [x] Received %r" % body)
-        resultKCSK = False
-        while resultKCSK != True:
-            resultKCSK = send2kcs(body)
+            def callback(ch, method, properties, body):
+                logger.debug(" [x] Received %r" % body)
+        
+                # Bucle de envio del mensaje al KCS
+                resultKCSK = False
+                while resultKCSK != True:
+                    resultKCSK = send2kcs(body)
+                    time.sleep(0.5)
+                
+                # Confirma la lectura del mensaje    
+                ch.basic_ack(delivery_tag = method.delivery_tag)
+                
+                # Espera antes de leer el siguiente mensaje
+                time.sleep(SLEEP_TIME)
+
+
+            channel.basic_qos(prefetch_count=1)
+            channel.basic_consume(callback,
+                              queue='AIS')
+
+            channel.start_consuming()
+
+
+        except Exception, error:
+            logger.error('Error connecting to rabbitMQ: %s', error)
+            rabbitMQconnection = None
             time.sleep(0.5)
-        ch.basic_ack(delivery_tag = method.delivery_tag)
-        time.sleep(0.15)
-
-    channel.basic_qos(prefetch_count=1)
-    channel.basic_consume(callback,
-                      queue='AIS')
-
-    channel.start_consuming()
 
 
 if __name__ == '__main__':
