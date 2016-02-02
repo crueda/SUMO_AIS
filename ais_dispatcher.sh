@@ -21,6 +21,11 @@ import logging, logging.handlers
 import pika
 import time
 
+import threading
+import SocketServer, socket
+import binascii
+import base64
+
 ########################################################################
 # configuracion y variables globales
 from configobj import ConfigObj
@@ -32,11 +37,16 @@ LOG_FOR_ROTATE = 10
 RABBITMQ_HOST = config['rabbitMQ_HOST']
 QUEUE_NAME = config['queue_name']
 
+KCS_HOST = config['KCS_HOST']
+KCS_PORT = config['KCS_PORT']
+
 SLEEP_TIME = float(config['sleep_time'])
 
-PID = "/var/run/sumo/ais_dispatcher"
+PID = "/var/run/ais_dispatcher"
 
 #### VARIABLES #########################################################
+
+
 
 ########################################################################
 
@@ -73,7 +83,7 @@ if os.access(os.path.expanduser(PID), os.F_OK):
 
 #This is part of code where we put a PID file in the lock file
 pidfile = open(os.path.expanduser(PID), 'a')
-print "Tracking-push process started with PID: %s" % os.getpid()
+print "ais_dispatcher process started with PID: %s" % os.getpid()
 pidfile.write(str(os.getpid()))
 pidfile.close()
 
@@ -84,39 +94,74 @@ pidfile.close()
 #
 ########################################################################
 
-def main():
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
-    channel = connection.channel()
+socketKCS = None
+rabbitMQconnection = None
 
-    channel.queue_declare(queue=QUEUE_NAME)
+def connectKCS():
+    global socketKCS
+
+    # conexion a KCS
+    socketKCS = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    socketKCS.settimeout(0.1)
+    try:
+        socketKCS.connect((KCS_HOST, int(KCS_PORT)))
+        logger.info('Connected to KCS')
+        socketKCS.settimeout(0.05)
+    except Exception, error:
+        logger.error('Error connecting to KCS: %s', error)
+
+def connectRabbitMQ():
+    global rabbitMQconnection
+
+    # conexión a rabbitMQ
+    try:
+        rabbitMQconnection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
+        return True
+    except Exception, error:
+        logger.error('Error connecting to rabbitMQ: %s', error)
+    return False
+
+def send2kcs(message):
+    global socketKCS
+    try:
+        socketKCS.send(message)
+        logger.info("[->] Sent to KCS")
+        return True
+    except Exception, error:
+        logger.error('Error sending data to KCS: %s',error)
+        logger.info('Trying reconnection to KCS')
+        try:
+            socketKCS.settimeout(0.1)
+            socketKCS.connect((KCS_HOST, int(KCS_PORT)))
+            socketKCS.settimeout(0.05)
+            socketKCS.send(message)
+            logger.info("[->] Sent to KCS")
+            return True
+        except:
+            logger.info('Failed reconnection to KCS')
+    return False
+
+def main():
+    global rabbitMQconnection
+
+    # Bucle de conexion a la cola
+    resultRabbitMQ = False
+    while resultRabbitMQ != True:
+        resultRabbitMQ = connectRabbitMQ()
+        time.sleep(0.5)
+
+    channel = rabbitMQconnection.channel()
+    channel.queue_declare(queue='AIS', durable=True)
+    logger.info(' [*] Waiting for messages. To exit press CTRL+C')
 
     def callback(ch, method, properties, body):
         logger.debug(" [x] Received %r" % body)
-
-        # Se envia el mensaje AIS al KCS
-
-        time.sleep(SLEEP_TIME)
-
-    channel.basic_consume(callback,
-                      queue=QUEUE_NAME,
-                      no_ack=True)
-
-    logger.info(' [*] Waiting for AIS messages.')
-    channel.start_consuming()
-
-def main2():
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
-    channel = connection.channel()
-
-    channel.queue_declare(queue='AIS', durable=True)
-    print(' [*] Waiting for messages. To exit press CTRL+C')
-
-    def callback(ch, method, properties, body):
-        print(" [x] Received %r" % body)
-        #time.sleep(body.count(b'.'))
-        print(" [x] Done")
+        resultKCSK = False
+        while resultKCSK != True:
+            resultKCSK = send2kcs(body)
+            time.sleep(0.5)
         ch.basic_ack(delivery_tag = method.delivery_tag)
-        #time.sleep(0.1)
+        time.sleep(0.15)
 
     channel.basic_qos(prefetch_count=1)
     channel.basic_consume(callback,
@@ -124,5 +169,7 @@ def main2():
 
     channel.start_consuming()
 
+
 if __name__ == '__main__':
-    main2()
+    connectKCS()
+    main()
