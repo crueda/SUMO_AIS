@@ -145,23 +145,12 @@ def calculateSleep():
             if (content_json['messages'] == 0):
                 SLEEP_TIME = DEFAULT_SLEEP_TIME
             else:
-                SLEEP_TIME = 20/content_json['messages']
+                SLEEP_TIME = 15/content_json['messages']
+        logger.info ("Mensajes en cola=" + str(content_json['messages']) + " - SLEEP TIME=" + str(SLEEP_TIME))
         time.sleep(20)
 
-
-########################################################################
-# Funcion principal
-#
-########################################################################
-
-def main():
-    global SLEEP_TIME
-    rabbitMQconnection = None
-
-    thread1 = Thread(target=calculateSleep)
-    thread1.start()
-    thread1.join()
-
+def proccessQueue():
+    global rabbitMQconnection
     while True:
         try:
             if (rabbitMQconnection == None):
@@ -184,6 +173,8 @@ def main():
                 ch.basic_ack(delivery_tag = method.delivery_tag)
                 
                 # Espera antes de leer el siguiente mensaje
+                #print "Espera despues de leer: " + str(SLEEP_TIME)
+                #time.sleep(SLEEP_TIME)
                 time.sleep(SLEEP_TIME)
 
 
@@ -193,12 +184,30 @@ def main():
 
             channel.start_consuming()
 
-
         except Exception, error:
             logger.error('Error connecting to rabbitMQ: %s', error)
             rabbitMQconnection = None
             time.sleep(0.5)
 
+########################################################################
+# Funcion principal
+#
+########################################################################
+
+def main():
+    global SLEEP_TIME
+    rabbitMQconnection = None
+
+    thread1 = Thread(target=calculateSleep)
+    thread1.start()
+
+    thread2 = Thread(target=proccessQueue)
+    thread2.start()
+
+    thread1.join()
+    thread2.join()
+
+    
 
 if __name__ == '__main__':
     connectKCS()
