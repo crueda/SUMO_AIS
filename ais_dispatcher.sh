@@ -11,6 +11,7 @@
 # Initial version
 ##################################################################################
 
+from __future__ import division
 import time
 import datetime
 import os
@@ -18,7 +19,9 @@ import sys
 import utm
 import SocketServer, socket
 import logging, logging.handlers
-
+import json
+import httplib2
+from threading import Thread
 import pika
 
 
@@ -31,12 +34,15 @@ LOG = config['directory_logs'] + "/ais_dispatcher.log"
 LOG_FOR_ROTATE = 10
 
 RABBITMQ_HOST = config['rabbitMQ_HOST']
+RABBITMQ_PORT = config['rabbitMQ_PORT']
+RABBITMQ_ADMIN_USERNAME = config['rabbitMQ_admin_username']
+RABBITMQ_ADMIN_PASSWORD = config['rabbitMQ_admin_password']
 QUEUE_NAME = config['queue_name']
 
 KCS_HOST = config['KCS_HOST']
 KCS_PORT = config['KCS_PORT']
 
-SLEEP_TIME = float(config['sleep_time'])
+DEFAULT_SLEEP_TIME = float(config['sleep_time'])
 
 PID = "/var/run/ais_dispatcher"
 
@@ -87,6 +93,7 @@ pidfile.close()
 ########################################################################
 
 socketKCS = None
+SLEEP_TIME = DEFAULT_SLEEP_TIME
 
 def connectKCS():
     global socketKCS
@@ -123,13 +130,37 @@ def send2kcs(message):
     return False
 
 
+def calculateSleep():
+    global SLEEP_TIME
+    global DEFAULT_SLEEP_TIME
+    url = "http://" + RABBITMQ_HOST + ":" + RABBITMQ_PORT + "/api/queues/%2F/" + QUEUE_NAME 
+    h = httplib2.Http(".cache")
+    h.add_credentials(RABBITMQ_ADMIN_USERNAME, RABBITMQ_ADMIN_PASSWORD) 
+    
+    # Cada 20 segundos se lee el tamaño de la cola para recalcular el SLEEP_TIME
+    while True:
+        resp, content = h.request(url)
+        if (resp.status == 200):
+            content_json = json.loads(content)
+            if (content_json['messages'] == 0):
+                SLEEP_TIME = DEFAULT_SLEEP_TIME
+            else:
+                SLEEP_TIME = 20/content_json['messages']
+        time.sleep(20)
+
+
 ########################################################################
 # Funcion principal
 #
 ########################################################################
 
 def main():
+    global SLEEP_TIME
     rabbitMQconnection = None
+
+    thread1 = Thread(target=calculateSleep)
+    thread1.start()
+    thread1.join()
 
     while True:
         try:
@@ -137,7 +168,7 @@ def main():
                 rabbitMQconnection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
 
             channel = rabbitMQconnection.channel()
-            channel.queue_declare(queue='AIS', durable=True)
+            channel.queue_declare(queue=QUEUE_NAME, durable=True)
             logger.info(' [*] Waiting for messages. To exit press CTRL+C')
 
             def callback(ch, method, properties, body):
@@ -158,7 +189,7 @@ def main():
 
             channel.basic_qos(prefetch_count=1)
             channel.basic_consume(callback,
-                              queue='AIS')
+                              queue=QUEUE_NAME)
 
             channel.start_consuming()
 
