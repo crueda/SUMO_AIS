@@ -4,3 +4,5 @@ ais_dispatcher.sublime-project
 ais_dispatcher.sublime-workspace
 
 ais_dispatcher.properties
+
+.cache/192.168.24.34,15672,api,queues,%2F,AIS,f525fd31540cab2f40e8a67e9a1a7ab9
