@@ -119,6 +119,7 @@ def send2kcs(message):
         logger.error('Error sending data to KCS: %s',error)
         logger.info('Trying reconnection to KCS')
         try:
+            socketKCS = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             socketKCS.settimeout(0.1)
             socketKCS.connect((KCS_HOST, int(KCS_PORT)))
             socketKCS.settimeout(0.05)
