@@ -168,13 +168,13 @@ def proccessQueue():
                 resultKCSK = False
                 while resultKCSK != True:
                     resultKCSK = send2kcs(body)
-                    time.sleep(0.1)
+                    time.sleep(0.2)
                 
                 # Confirma la lectura del mensaje    
                 ch.basic_ack(delivery_tag = method.delivery_tag)
                 
                 # Espera antes de leer el siguiente mensaje
-                print "Espera despues de leer: " + str(SLEEP_TIME)
+                #print "Espera despues de leer: " + str(SLEEP_TIME)
                 time.sleep(SLEEP_TIME)
 
             channel.basic_qos(prefetch_count=1)
@@ -186,7 +186,7 @@ def proccessQueue():
         except Exception, error:
             logger.error('Error connecting to rabbitMQ: %s', error)
             rabbitMQconnection = None
-            time.sleep(0.1)
+            time.sleep(0.2)
 
 ########################################################################
 # Funcion principal
