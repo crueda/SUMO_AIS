@@ -127,7 +127,7 @@ def send2kcs(message):
             return True
         except:
             logger.info('Failed reconnection to KCS')
-    return False
+            return False
 
 
 def calculateSleep():
@@ -146,7 +146,7 @@ def calculateSleep():
                 SLEEP_TIME = DEFAULT_SLEEP_TIME
             else:
                 SLEEP_TIME = 15/content_json['messages']
-        logger.info ("Mensajes en cola=" + str(content_json['messages']) + " - SLEEP TIME=" + str(SLEEP_TIME))
+            logger.info ("Mensajes en cola=" + str(content_json['messages']) + " - SLEEP TIME=" + str(SLEEP_TIME))
         time.sleep(20)
 
 def proccessQueue():
@@ -167,16 +167,14 @@ def proccessQueue():
                 resultKCSK = False
                 while resultKCSK != True:
                     resultKCSK = send2kcs(body)
-                    time.sleep(0.5)
+                    time.sleep(0.1)
                 
                 # Confirma la lectura del mensaje    
                 ch.basic_ack(delivery_tag = method.delivery_tag)
                 
                 # Espera antes de leer el siguiente mensaje
-                #print "Espera despues de leer: " + str(SLEEP_TIME)
-                #time.sleep(SLEEP_TIME)
+                print "Espera despues de leer: " + str(SLEEP_TIME)
                 time.sleep(SLEEP_TIME)
-
 
             channel.basic_qos(prefetch_count=1)
             channel.basic_consume(callback,
@@ -187,7 +185,7 @@ def proccessQueue():
         except Exception, error:
             logger.error('Error connecting to rabbitMQ: %s', error)
             rabbitMQconnection = None
-            time.sleep(0.5)
+            time.sleep(0.1)
 
 ########################################################################
 # Funcion principal
